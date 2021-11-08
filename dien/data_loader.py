@@ -1,81 +1,75 @@
+import json
+
 import numpy as np
-import pickle
-import random
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-with open('data/mid_voc.pkl', 'rb') as f:
-    item_id_voc = pickle.load(f)
-with open('data/cat_voc.pkl', 'rb') as f:
-    item_cat_voc = pickle.load(f)
-
-item_id2cat_id = {'default_mid': 'default_cat'}
-with open('data/local_train_splitByUser') as f:
-    print('prepare item_id2cat_id')
-    for line in f:
-        line = line.strip().split("\t")
-        _, _, item_id, cat_id, his_item_ids, his_cat_ids = line
-        his_item_ids = his_item_ids.split("")
-        his_cat_ids = his_cat_ids.split("")
-        item_id2cat_id[item_id] = cat_id
-        for item_id, cat_id in zip(his_item_ids, his_cat_ids):
-            item_id2cat_id[item_id] = cat_id
+with open('./data/item_vocab.json', 'r') as f:
+    item_vocab = json.load(f)
+reverse_vocab = {}
+for item_id, idx in item_vocab.items():
+    reverse_vocab[idx] = item_id
+with open('./data/cat_vocab.json', 'r') as f:
+    cat_vocab = json.load(f)
+with open('./data/item_id2cat_id.json', 'r') as f:
+    item_id2cat_id = json.load(f)
 
 
-def padding(sequence, history_max_length):
-    if len(sequence) >= history_max_length:
-        mask = [1] * history_max_length
-        sequence = sequence[:history_max_length]
-    elif len(sequence) < history_max_length:
-        mask = [1] * len(sequence) + [0] * (history_max_length - len(sequence))
-        sequence.extend([0] * (history_max_length - len(sequence)))
-    return sequence, mask
+# def padding(sequence, history_max_length):
+#     if len(sequence) >= history_max_length:
+#         mask = [1] * history_max_length
+#         sequence = sequence[:history_max_length]
+#     elif len(sequence) < history_max_length:
+#         mask = [1] * len(sequence) + [0] * (history_max_length - len(sequence))
+#         sequence.extend([0] * (history_max_length - len(sequence)))
+#     return sequence, mask
 
 
-def get_item_idx(item_id):
-    return item_id_voc[item_id] if item_id in item_id_voc else 0
+def index_item_id(item_id):
+    return item_vocab[item_id] if item_id in item_vocab else item_vocab['unk']
 
 
-def get_cat_idx(cat_id):
-    return item_cat_voc[cat_id] if cat_id in item_cat_voc else 0
+def index_cat_id(cat_id):
+    return cat_vocab[cat_id] if cat_id in cat_id else cat_vocab['unk']
 
 
-def parse_line(line, history_max_length):
+def parse_line(line, history_max_length, sample_negative=False):
     line = line.strip().split("\t")
-    label, user_id, item_id, cat_id, his_item_ids, his_cat_ids = line
-    label = float(label)
-    item_idx = [get_item_idx(item_id)]
-    cat_idx = [get_cat_idx(cat_id)]
+    label, user_id, target_item_id, target_cat_id, pos_his_item_ids, pos_his_cat_ids = line
+    label = [float(label)]
+    target_item_idx = [index_item_id(target_item_id)]
+    target_cat_idx = [index_cat_id(target_cat_id)]
 
-    his_item_ids = his_item_ids.split("")
-    his_item_idxs = [get_item_idx(item_id) for item_id in his_item_ids]
-    his_item_idxs, mask = padding(his_item_idxs, history_max_length)
+    pos_his_item_ids = pos_his_item_ids.split("")
+    pos_his_item_idxes = [[index_item_id(item_id) for item_id in pos_his_item_ids]]
+    pos_his_item_idxes = pad_sequences(pos_his_item_idxes, maxlen=history_max_length, padding='post', truncating='pre')
 
-    his_cat_ids = his_cat_ids.split("")
-    his_cat_idxs = [get_cat_idx(cat_id) for cat_id in his_cat_ids]
-    his_cat_idxs, mask = padding(his_cat_idxs, history_max_length)
+    pos_his_cat_ids = pos_his_cat_ids.split("")
+    pos_his_cat_idxes = [[index_cat_id(cat_id) for cat_id in pos_his_cat_ids]]
+    pos_his_cat_idxes = pad_sequences(pos_his_cat_idxes, maxlen=history_max_length, padding='post', truncating='pre')
 
     label = np.array(label, np.float32)
-    item_idx = np.array(item_idx, np.int32)
-    cat_idx = np.array(cat_idx, np.int32)
-    his_item_idxs = np.array(his_item_idxs, np.int32)
-    his_cat_idxs = np.array(his_cat_idxs, np.int32)
-    mask = np.array(mask, np.float32)
-    return label, item_idx, cat_idx, his_item_idxs, his_cat_idxs, mask
+    target_item_idx = np.array(target_item_idx, np.int32)  # 1,
+    target_cat_idx = np.array(target_cat_idx, np.int32)  # 1,
+    pos_his_item_idxes = np.squeeze(pos_his_item_idxes)  # his_max_length,
+    pos_his_cat_idxes = np.squeeze(pos_his_cat_idxes)  # his_max_length,
+    feature = {'target_item': target_item_idx, 'target_cat': target_cat_idx, 'pos_his_item': pos_his_item_idxes,
+               'pos_his_cat': pos_his_cat_idxes}
+    if sample_negative:
+        neg_his_item_idxes = np.random.randint(1, len(item_vocab), (history_max_length,))  # filter 0 for 0 is mask idx
+        neg_his_cat_idxes = [index_cat_id(item_id2cat_id[reverse_vocab[item_idx]]) for item_idx in neg_his_item_idxes]
+        neg_his_cat_idxes = np.array(neg_his_cat_idxes, np.int32)
+        feature['neg_his_item'] = neg_his_item_idxes
+        feature['neg_his_cat'] = neg_his_cat_idxes
+    return feature, label
 
 
-def din_example_generator(file, history_max_length):
+def example_generator(model_type, file, history_max_length):
+    # print(type(model_type))
+    model_type = model_type.decode("utf-8")  # tensorflow transform
     with open(file) as f:
         for line in f:
-            yield parse_line(line, history_max_length)
-
-
-def dien_example_generator(file, history_max_length):
-    neg_pool = list(item_id_voc.keys())
-    with open(file) as f:
-        for line in f:
-            label, item_idx, cat_idx, pos_his_item_idxs, pos_his_cat_idxs, mask = parse_line(line, history_max_length)
-            neg_his_item_ids = random.choices(neg_pool, k=history_max_length)
-            neg_his_item_idxs = [get_item_idx(item_id) for item_id in neg_his_item_ids]
-            neg_his_cat_idxs = [get_cat_idx(item_id2cat_id[item_id]) for item_id in neg_his_item_ids]
-            neg_his_item_idxs = np.array(neg_his_item_idxs, np.int32)
-            neg_his_cat_idxs = np.array(neg_his_cat_idxs, np.int32)
-            yield label, item_idx, cat_idx, pos_his_item_idxs, pos_his_cat_idxs, neg_his_item_idxs, neg_his_cat_idxs, mask
+            if model_type == 'BASE' or model_type == 'DIN':
+                feature, label = parse_line(line, history_max_length, sample_negative=False)
+            elif model_type == 'DIEN':
+                feature, label = parse_line(line, history_max_length, sample_negative=True)
+            yield feature, label

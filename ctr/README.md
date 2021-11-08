@@ -12,15 +12,11 @@ criteo,  approximate 40 millions record.
 
 **experiment result (see train log):** 
 
-​						auc				bce_loss
+​			     	auc			   bce_loss
 
-[DLRM]: https://arxiv.org/pdf/1906.00091.pdf
+[DLRM](https://arxiv.org/pdf/1906.00091.pdf)	    0.8018			0.4534
 
-​			0.8018			0.4534
-
-[DeepFM]: https://arxiv.org/abs/1703.04247
-
- :		0.7849			0.4708
+[DeepFM](https://arxiv.org/abs/1703.04247 )	0.7849			0.4708		
 
 **TODO:**
 

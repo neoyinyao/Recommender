@@ -1,6 +1,7 @@
 import random
 
 import dgl
+import numpy as np
 import tensorflow as tf
 
 
@@ -19,15 +20,14 @@ def get_side_info(item2brand, brand_vocab, item2cat, cat_vocab, item_id):
         brand_idx = brand_vocab[brand_id] if brand_id in brand_vocab else 0
     else:
         brand_idx = 0
-    return [cat_idx], [brand_idx]
+    return tf.constant([cat_idx], dtype=tf.int32), tf.constant([brand_idx], dtype=tf.int32)
 
 
-def build_dataset(model_type, mode, train_g, sample_k, random_walk_length, num_ns, cat_vocab, brand_vocab, item2cat,
+def build_dataset(model_type, mode, train_g, random_walk_length, num_ns, cat_vocab, brand_vocab, item2cat,
                   item2brand, item2idx, idx2item, test_item_pairs):
     def train_example_generator():
         while True:
-            src_nodes = list(range(1, len(idx2item)))  # exclude 0 because 0 is oov
-            seeds = random.choices(src_nodes, k=sample_k)
+            seeds = np.random.randint(1, len(idx2item), size=(1,))  # exclude 0 because 0 is oov
             sequences, _ = dgl.sampling.random_walk(train_g, nodes=seeds, length=random_walk_length,
                                                     prob='weight', restart_prob=0)  # sample_k,random_walk_length
             for sequence in sequences:
@@ -52,12 +52,11 @@ def build_dataset(model_type, mode, train_g, sample_k, random_walk_length, num_n
                     label = tf.constant([1] + [0] * num_ns, dtype="float32")  # 1+num_ns
                     context = tf.squeeze(context, axis=-1)  # 1+num_ns
                     target_item = target_item[tf.newaxis]  # 1,
-                    if model_type == 'GES' or 'EGES':
+                    if model_type == 'GES' or model_type == 'EGES':
                         target_item_idx = int(target_item.numpy())
                         target_item_id = idx2item[target_item_idx]
                         target_item_cat_idx, target_item_brand_idx = get_side_info(item2brand, brand_vocab, item2cat,
-                                                                                   cat_vocab,
-                                                                                   target_item_id)
+                                                                                   cat_vocab, target_item_id)
                         yield target_item, target_item_cat_idx, target_item_brand_idx, context, label
                     else:
                         yield target_item, context, label
@@ -69,7 +68,9 @@ def build_dataset(model_type, mode, train_g, sample_k, random_walk_length, num_n
             match_item_idx = [get_item_idx(item2idx, match_item)]
             neg_item = random.choice(neg_pool)
             neg_item_idx = [get_item_idx(item2idx, neg_item)]
-
+            query_item_idx = np.array(query_item_idx, dtype=np.int32)
+            match_item_idx = np.array(match_item_idx, dtype=np.int32)
+            neg_item_idx = np.array(neg_item_idx, dtype=np.int32)
             if model_type == 'BGE':
                 yield query_item_idx, match_item_idx, neg_item_idx
             elif model_type == 'GES' or model_type == 'EGES':
@@ -87,8 +88,9 @@ def build_dataset(model_type, mode, train_g, sample_k, random_walk_length, num_n
             output_shapes = (tf.TensorShape((1,)), tf.TensorShape((1 + num_ns,)), tf.TensorShape((1 + num_ns,)))
             dataset = tf.data.Dataset.from_generator(train_example_generator, output_types=output_types,
                                                      output_shapes=output_shapes)
+            return dataset
         elif mode == 'test':
-            output_types = (tf.int32, tf.int32, tf.float32)
+            output_types = (tf.int32, tf.int32, tf.int32)
             output_shapes = (tf.TensorShape((1,)), tf.TensorShape((1,)), tf.TensorShape((1,)))
             dataset = tf.data.Dataset.from_generator(test_example_generator, output_types=output_types,
                                                      output_shapes=output_shapes)

@@ -1,4 +1,4 @@
-#  implementation of PinSage working with dgl DEEP GRAPH LIBRARY and Tensorflow
+#  implementation of PinSage working with dgl Deep Graph Library and Tensorflow
 
 Inspired by https://github.com/dmlc/dgl/tree/master/examples/pytorch/pinsage
 
