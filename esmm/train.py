@@ -5,6 +5,7 @@ from tqdm import tqdm
 import tensorflow as tf
 from tensorflow import keras
 
+from mmoe import MMOE
 from tfrecord_io import read_tfrecord
 from base import BaseModel
 from esmm import ESMM
@@ -90,7 +91,7 @@ def train_base(epochs, ctr_model, cvr_model, auc_num_thresholds, train_ctr_datas
         test_ctcvr_auc.reset_states()
 
 
-def train_esmm(epochs, model, auc_num_thresholds, train_ctr_dataset, test_cvr_dataset,
+def train_multi_task(epochs, model, auc_num_thresholds, train_ctr_dataset, test_cvr_dataset,
                test_ctcvr_dataset, test_steps):
     @tf.function
     def train_step(batch_data):
@@ -162,9 +163,9 @@ def train():
                         help='test batch size.')
     parser.add_argument('--auc_num_thresholds', type=int, default=10000,
                         help='tensorflow approximate auc config')
-    parser.add_argument('--train_ctr_tfrecord', type=str, default='data/train_impression_subsample.tfrecord',
+    parser.add_argument('--train_ctr_tfrecord', type=str, default='../data/train_impression_subsample.tfrecord',
                         help='train tfrecord path')
-    parser.add_argument('--model_type', type=str, default='ESMM',
+    parser.add_argument('--model_type', type=str, default='MMOE',
                         help='BASE or ESMM')
     parser.add_argument('--test_steps', type=int, default=3000,
                         help='test steps')
@@ -219,16 +220,16 @@ def train():
     train_ctr_dataset = train_ctr_dataset.shuffle(100 * train_batch_size).batch(
         train_batch_size).prefetch(prefetch_size)
 
-    train_cvr_tfrecord = 'data/train_click.tfrecord'
+    train_cvr_tfrecord = '../data/train_click.tfrecord'
     train_cvr_dataset = read_tfrecord(train_cvr_tfrecord)
     train_cvr_dataset = train_cvr_dataset.shuffle(100 * train_batch_size).batch(train_batch_size).prefetch(
         prefetch_size)
 
-    test_cvr_tfrecord = 'data/test_click.tfrecord'
+    test_cvr_tfrecord = '../data/test_click.tfrecord'
     test_cvr_dataset = read_tfrecord(test_cvr_tfrecord)
     test_cvr_dataset = test_cvr_dataset.batch(test_batch_size).prefetch(prefetch_size)
 
-    test_ctcvr_tfrecord = 'data/test_impression.tfrecord'
+    test_ctcvr_tfrecord = '../data/test_impression.tfrecord'
     test_ctcvr_dataset = read_tfrecord(test_ctcvr_tfrecord)
     test_ctcvr_dataset = test_ctcvr_dataset.batch(test_batch_size).prefetch(prefetch_size)
     if model_type == 'BASE':
@@ -239,9 +240,16 @@ def train():
                    test_cvr_dataset, test_ctcvr_dataset)
     elif model_type == 'ESMM':
         model = ESMM(mlp_units, feat_vocab, embedding_size)
-        train_esmm(epochs, model, auc_num_thresholds, train_ctr_dataset, test_cvr_dataset, test_ctcvr_dataset,
+        train_multi_task(epochs, model, auc_num_thresholds, train_ctr_dataset, test_cvr_dataset, test_ctcvr_dataset,
                    test_steps)
-
-
+    elif model_type == 'MMOE':
+        num_tasks = 2
+        num_experts = 8
+        expert_hidden_units = [200,80]
+        task_hidden_units = [40,1]
+        model = MMOE(num_tasks, num_experts, expert_hidden_units, task_hidden_units, feat_vocab,
+                 embedding_size)
+        train_multi_task(epochs, model, auc_num_thresholds, train_ctr_dataset, test_cvr_dataset, test_ctcvr_dataset,
+                         test_steps)
 if __name__ == '__main__':
     train()
